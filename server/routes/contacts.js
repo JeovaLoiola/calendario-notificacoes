@@ -127,16 +127,37 @@ router.put('/:id', mutationLimiter, (req, res) => {
 // Deletar contato
 router.delete('/:id', mutationLimiter, (req, res) => {
   try {
-    const stmt = db.prepare('DELETE FROM contacts WHERE id = ?');
-    const result = stmt.run(req.params.id);
+    const contactId = req.params.id;
+    const existing = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId);
 
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'Contato não encontrado.' });
+    const stmt = db.prepare('DELETE FROM contacts WHERE id = ?');
+    const result = stmt.run(contactId);
+
+    // Se existia contato com data de aniversário, limpa eventos de aniversário vinculados
+    if (existing && existing.name) {
+      try {
+        const allTasks = db.prepare('SELECT * FROM tasks').all();
+        const birthdayTasks = allTasks.filter(t => 
+          t.category === 'Aniversário 🎂' && 
+          (t.title?.includes(existing.name) || (existing.email && t.description?.includes(existing.email)))
+        );
+        for (const bTask of birthdayTasks) {
+          db.prepare('DELETE FROM tasks WHERE id = ?').run(bTask.id);
+        }
+      } catch (err) {
+        console.warn('Aviso ao sincronizar exclusão no calendário:', err.message);
+      }
     }
 
-    res.json({ message: 'Contato removido com sucesso.', id: req.params.id });
+    res.json({
+      success: true,
+      message: 'Contato removido com sucesso.',
+      id: contactId,
+      changes: result.changes
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Erro ao excluir contato:', err);
+    res.status(500).json({ error: err.message || 'Erro ao excluir contato' });
   }
 });
 

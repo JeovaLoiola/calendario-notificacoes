@@ -368,11 +368,14 @@ class LocalDatabase {
           return { changes: 1 };
         }
 
-        // DELETE FROM contacts WHERE id = ?
-        if (normalized.includes('DELETE FROM contacts WHERE id = ?')) {
+        // DELETE FROM contacts (por ID ou correspondência flexível)
+        if (/DELETE\s+FROM\s+contacts/i.test(normalized)) {
           const targetId = params[0];
           const initialLen = self.data.contacts.length;
-          self.data.contacts = self.data.contacts.filter(c => String(c.id) !== String(targetId) && Number(c.id) !== Number(targetId));
+          self.data.contacts = self.data.contacts.filter(c => 
+            String(c.id) !== String(targetId) && 
+            Number(c.id) !== Number(targetId)
+          );
           self.save();
           return { changes: initialLen !== self.data.contacts.length ? 1 : 0 };
         }
