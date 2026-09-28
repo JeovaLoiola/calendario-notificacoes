@@ -1,4 +1,3 @@
-const cron = require('node-cron');
 const db = require('../db');
 const { sendTaskNotification, sendBirthdayNotification } = require('./mailer');
 const { parseBirthDate, calculateBirthdayInfo } = require('./birthdayService');
@@ -220,15 +219,19 @@ async function checkAndSendAutomatedNotifications() {
 
 function startScheduler() {
   console.log('⏰ Agendador de lembretes automáticos e aniversários iniciado...');
-
-  // Executar a cada minuto
-  cron.schedule('* * * * *', async () => {
-    try {
-      await checkAndSendAutomatedNotifications();
-    } catch (err) {
-      console.error('Erro na execução do agendador automático:', err);
-    }
-  });
+  try {
+    const cron = require('node-cron');
+    // Executar a cada minuto
+    cron.schedule('* * * * *', async () => {
+      try {
+        await checkAndSendAutomatedNotifications();
+      } catch (err) {
+        console.error('Erro na execução do agendador automático:', err);
+      }
+    });
+  } catch (err) {
+    console.warn('Agendador contínuo não disponível no ambiente atual:', err.message);
+  }
 }
 
 module.exports = {

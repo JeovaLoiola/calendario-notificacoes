@@ -1,5 +1,3 @@
-const pdfParseModule = require('pdf-parse');
-
 const MONTH_MAP = {
   'janeiro': '01', 'jan': '01',
   'fevereiro': '02', 'fev': '02',
@@ -452,6 +450,7 @@ function parseEventsFromText(rawText) {
  */
 async function parsePdfBuffer(buffer) {
   try {
+    const pdfParseModule = require('pdf-parse');
     let rawText = '';
     let numpages = 1;
 
