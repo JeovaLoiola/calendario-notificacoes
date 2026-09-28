@@ -19,24 +19,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middlewares CORS
-const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+// Middleware CORS universal para ambientes de produção (Netlify/Vercel) e desenvolvimento
 app.use(cors({
-  origin: (origin, callback) => {
-    // Permite requisições sem origin (como mobile apps, curl, postman ou same-origin em produção)
-    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // Em desenvolvimento ou em ambiente Serverless (Vercel/Netlify)
-    if (process.env.NODE_ENV !== 'production' || process.env.VERCEL || process.env.NETLIFY) {
-      return callback(null, true);
-    }
-    return callback(new Error('Origem não permitida pela política CORS.'));
-  },
-  credentials: true
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
-// Limite no tamanho do payload JSON para mitigar ataques DoS
+// Limite no tamanho do payload JSON
 app.use(express.json({ limit: '5mb' }));
 
 const { apiLimiter } = require('./middlewares/rateLimiter');
@@ -61,27 +52,42 @@ apiRouter.get('/health', (req, res) => {
   });
 });
 
-// Suporte a todos os formatos de roteamento: Vercel (/api), Netlify (/.netlify/functions/api) e raiz (/)
+// Montagem do router para suportar todas as variações de URL:
+// 1. /api/*
+// 2. /.netlify/functions/api/*
+// 3. /* (raiz direta)
 app.use('/api', apiRouter);
 app.use('/.netlify/functions/api', apiRouter);
 app.use('/', apiRouter);
 
-// Servir frontend compilado caso exista e não seja ambiente serverless puro
+// Servir frontend compilado caso exista e seja ambiente local tradicional
 const distPath = path.join(__dirname, '..', 'client', 'dist');
-if (fs.existsSync(distPath) && !process.env.NETLIFY && !process.env.VERCEL) {
+if (fs.existsSync(distPath) && !process.env.NETLIFY && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   app.use(express.static(distPath));
 }
 
-// Fallback SPA middleware (apenas ambiente local tradicional)
+// Fallback SPA middleware
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/.netlify/functions/api')) {
-    return res.status(404).json({ error: 'Endpoint não encontrado' });
+    return res.status(404).json({ error: 'Endpoint da API não encontrado' });
   }
   const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath) && !process.env.NETLIFY && !process.env.VERCEL) {
+  if (fs.existsSync(indexPath) && !process.env.NETLIFY && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return res.sendFile(indexPath);
   }
-  next();
+  return res.status(404).json({ error: 'Recurso não encontrado' });
+});
+
+// Middleware Global de Tratamento de Erros (Garante que nunca ocorra crash 502)
+app.use((err, req, res, next) => {
+  console.error('❌ [API Error]:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err.status || 500).json({
+    error: err.message || 'Erro interno no servidor',
+    timestamp: new Date().toISOString()
+  });
 });
 
 module.exports = app;
