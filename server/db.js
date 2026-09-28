@@ -1,9 +1,18 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const isServerless = Boolean(process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const isServerless = Boolean(
+  process.env.NETLIFY ||
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+);
+
 const bundledDataFile = path.join(__dirname, '..', 'data', 'calendar_store.json');
-const dataDir = isServerless ? path.join('/tmp', 'data') : path.join(__dirname, '..', 'data');
+const dataDir = isServerless 
+  ? path.join(os.tmpdir(), 'calendario_data') 
+  : path.join(__dirname, '..', 'data');
 
 try {
   if (!fs.existsSync(dataDir)) {
@@ -42,56 +51,62 @@ class LocalDatabase {
         notification_logs: 0
       }
     };
+    this.ensureDir();
     this.load();
   }
 
+  ensureDir() {
+    try {
+      const dir = path.dirname(this.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (e) {}
+  }
+
   load() {
-    // Se estiver em ambiente Serverless (Netlify/Vercel) e o arquivo temporário ainda não existir, carrega do arquivo empacotado
+    this.seedInitialData();
+
+    // Se estiver em ambiente Serverless e o arquivo temporário ainda não existir, carrega do arquivo empacotado
     if (isServerless && !fs.existsSync(this.filePath) && fs.existsSync(bundledDataFile)) {
       try {
         const bundledContent = fs.readFileSync(bundledDataFile, 'utf-8');
         fs.writeFileSync(this.filePath, bundledContent, 'utf-8');
       } catch (err) {
-        console.warn('Aviso ao inicializar dados temporários em ambiente serverless:', err.message);
+        console.warn('Aviso ao copiar dados empacotados:', err.message);
       }
     }
 
-    if (fs.existsSync(this.filePath)) {
+    const fileToRead = fs.existsSync(this.filePath) ? this.filePath : (fs.existsSync(bundledDataFile) ? bundledDataFile : null);
+
+    if (fileToRead) {
       try {
-        const raw = fs.readFileSync(this.filePath, 'utf-8');
-        this.data = JSON.parse(raw);
-        if (!this.data.counters) {
+        const raw = fs.readFileSync(fileToRead, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.contacts)) this.data.contacts = parsed.contacts;
+          if (Array.isArray(parsed.tasks)) this.data.tasks = parsed.tasks;
+          if (Array.isArray(parsed.notification_logs)) this.data.notification_logs = parsed.notification_logs;
+          if (parsed.settings && typeof parsed.settings === 'object') this.data.settings = parsed.settings;
+          
           this.data.counters = {
-            contacts: this.data.contacts ? this.data.contacts.reduce((max, c) => Math.max(max, c.id || 0), 0) : 0,
-            tasks: this.data.tasks ? this.data.tasks.reduce((max, t) => Math.max(max, t.id || 0), 0) : 0,
-            notification_logs: this.data.notification_logs ? this.data.notification_logs.reduce((max, n) => Math.max(max, n.id || 0), 0) : 0
+            contacts: this.data.contacts.reduce((max, c) => Math.max(max, Number(c.id) || 0), 0),
+            tasks: this.data.tasks.reduce((max, t) => Math.max(max, Number(t.id) || 0), 0),
+            notification_logs: this.data.notification_logs.reduce((max, n) => Math.max(max, Number(n.id) || 0), 0)
           };
         }
-        if (!Array.isArray(this.data.tasks)) this.data.tasks = [];
-        if (!Array.isArray(this.data.contacts)) this.data.contacts = [];
-        if (!Array.isArray(this.data.notification_logs)) this.data.notification_logs = [];
-        if (!this.data.settings) this.data.settings = {};
       } catch (err) {
-        console.error('Erro ao ler banco de dados JSON, iniciando novo:', err);
+        console.error('Erro ao ler dados:', err.message);
       }
-    } else if (fs.existsSync(bundledDataFile)) {
-      try {
-        const raw = fs.readFileSync(bundledDataFile, 'utf-8');
-        this.data = JSON.parse(raw);
-      } catch (err) {
-        this.seedInitialData();
-      }
-    } else {
-      this.seedInitialData();
-      this.save();
     }
   }
 
   save() {
     try {
+      this.ensureDir();
       fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (err) {
-      console.warn('Aviso ao salvar banco de dados local:', err.message);
+      console.warn('Aviso ao salvar banco de dados:', err.message);
     }
   }
 

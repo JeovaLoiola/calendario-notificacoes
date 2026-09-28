@@ -61,23 +61,24 @@ apiRouter.get('/health', (req, res) => {
   });
 });
 
-// Montagem do router para suporte tanto local quanto Vercel (/api) e Netlify (/.netlify/functions/api e /api)
+// Suporte a todos os formatos de roteamento: Vercel (/api), Netlify (/.netlify/functions/api) e raiz (/)
 app.use('/api', apiRouter);
 app.use('/.netlify/functions/api', apiRouter);
+app.use('/', apiRouter);
 
 // Servir frontend compilado caso exista e não seja ambiente serverless puro
 const distPath = path.join(__dirname, '..', 'client', 'dist');
-if (fs.existsSync(distPath)) {
+if (fs.existsSync(distPath) && !process.env.NETLIFY && !process.env.VERCEL) {
   app.use(express.static(distPath));
 }
 
-// Fallback SPA middleware
+// Fallback SPA middleware (apenas ambiente local tradicional)
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/.netlify/functions/api')) {
     return res.status(404).json({ error: 'Endpoint não encontrado' });
   }
   const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) {
+  if (fs.existsSync(indexPath) && !process.env.NETLIFY && !process.env.VERCEL) {
     return res.sendFile(indexPath);
   }
   next();
